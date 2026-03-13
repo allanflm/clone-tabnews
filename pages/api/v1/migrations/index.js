@@ -3,37 +3,47 @@ import migrationsRunner from "node-pg-migrate";
 import { join } from "node:path";
 
 export default async function migrations(request, response) {
-  const dbClient = await database.getNewClient();
-
-  const defaultMigrationsOptions = {
-    dbClient: dbClient,
-    dryRun: true,
-    dir: join("infra", "migrations"),
-    direction: "up",
-    verbose: true,
-    migrationsTable: "pgmigrations",
-  };
-
-  if (request.method === "GET") {
-    const pedingMigrations = await migrationsRunner(defaultMigrationsOptions);
-    await dbClient.end();
-    return response.status(200).json(pedingMigrations);
+  const allowMethods = ["GET", "POST"];
+  if (!allowMethods.includes(request.method)) {
+    return response.status(405).json({
+      error: `Method "${request.method}" Not Allowed.`,
+    });
   }
 
-  if (request.method === "POST") {
-    const migratedMigrations = await migrationsRunner({
-      ...defaultMigrationsOptions,
-      dryRun: false,
-    });
+  let dbClient;
 
-    await dbClient.end();
+  try {
+    dbClient = await database.getNewClient();
 
-    if (migratedMigrations.length > 0) {
-      return response.status(201).json(migratedMigrations);
+    const defaultMigrationsOptions = {
+      dbClient: dbClient,
+      dryRun: true,
+      dir: join("infra", "migrations"),
+      direction: "up",
+      verbose: true,
+      migrationsTable: "pgmigrations",
+    };
+
+    if (request.method === "GET") {
+      const pedingMigrations = await migrationsRunner(defaultMigrationsOptions);
+      return response.status(200).json(pedingMigrations);
     }
 
-    return response.status(200).json(migratedMigrations);
-  }
+    if (request.method === "POST") {
+      const migratedMigrations = await migrationsRunner({
+        ...defaultMigrationsOptions,
+        dryRun: false,
+      });
+      if (migratedMigrations.length > 0) {
+        return response.status(201).json(migratedMigrations);
+      }
 
-  return response.status(405).end();
+      return response.status(200).json(migratedMigrations);
+    }
+  } catch (error) {
+    console.error(error);
+    throw error;
+  } finally {
+    await dbClient.end();
+  }
 }
